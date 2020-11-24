@@ -32,13 +32,18 @@ app.use(express.json())
 const Users = require('./models/user')
 var auth = require('./middleware/Auth')
 var dashboardRouter = require('./routes/admin/dashboard')
+var forgotRouter = require('./routes/forgot')
 const Products = require('./models/product')
 const Galleries = require('./models/gallery')
 const Cart = require('./models/cart');
+const Categories = require('./models/category');
+const Brands = require('./models/brand');
 const user = require('./models/user');
 const Comment = require('./models/comment')
 const Subcomment = require('./models/subcomment')
 const Order = require('./models/order')
+const Carousels = require('./models/carousel')
+app.use(forgotRouter)
 app.use(dashboardRouter)
 
 
@@ -54,7 +59,12 @@ db.on('error', console.error.bind(console, 'MongoDB connection error:'));
 
 
 app.get('/', async function(req, res) {
-
+    const productsMouse = await Products.find({category: 'Mouse'}).sort({_id:-1}).limit(10)
+    const productsKeyboard = await Products.find({category: 'Keyboard'}).sort({_id:-1}).limit(10)
+    const productsHeadset = await Products.find({$or: [ { category: 'Headset' }, { category: 'Earphone' } ]}).sort({_id:-1}).limit(10)
+    const productsChair = await Products.find({$or: [ { category: 'Gaming Chair' }, { category: 'Kursi Gaming' } ]}).sort({_id:-1}).limit(10)
+    const productsOther = await Products.find({category: { $nin: [ 'Mouse', 'Keyboard', 'Headset','Earphone', 'Gaming Chair', 'Kursi Gaming' ] }}).sort({_id:-1}).limit(10)
+    const carousels = await Carousels.find()
     if(req.isAuthenticated()){
         var badgeCart
         const userid = req.user.id
@@ -71,11 +81,11 @@ app.get('/', async function(req, res) {
         console.log(badgeCart)
         res.render('pages/index',
         {name: req.user.name,
-            isLoggedIn: true, badgecart: badgeCart});
+            isLoggedIn: true, badgecart: badgeCart, productsMouse: productsMouse, productsKeyboard:productsKeyboard, productsHeadset:productsHeadset, productsChair:productsChair, productsOther:productsOther, carousels:carousels});
     }
     else{
         res.render('pages/index',
-    {isLoggedIn: false});
+    {isLoggedIn: false, productsMouse: productsMouse, productsKeyboard:productsKeyboard, productsHeadset:productsHeadset, productsChair:productsChair, productsOther:productsOther, carousels:carousels});
     }
     
 });
@@ -83,8 +93,81 @@ app.get('/', async function(req, res) {
 
 //route product
 app.get('/product', async function(req, res) {
+    const categories = await Categories.find()
+    const brands = await Brands.find()
+    const page = parseInt(req.query.page) >= 1 ? parseInt(req.query.page) : 1;
+    const limit = 20
+    const pagination = {}
+    const startIndex = (page -1) * limit
+    const endIndex = page* limit
+    let products
+    let query = {}
+    let reqbrand
+    let reqcategory
+    let jumlah =  await Products.countDocuments().exec()
+    if (req.query.q){
+query.nama = {'$regex' : req.query.q, '$options' : 'i'}
+    }
+    if ( req.query.category){
+        query.category = {'$regex' : req.query.category, '$options' : 'i'}
+        reqcategory = req.query.category
+    }
+
+    if ( req.query.brand){
+        query.brand = {'$regex' : req.query.brand, '$options' : 'i'}
+       reqbrand = req.query.brand
+    }
+    if ( (JSON.stringify(query) === '{}') == false){
+       await Products.find(query).limit(limit)
+        .skip(startIndex)
+        .then((results) => {
+           products = results
+          if (endIndex < jumlah)
+          {
+           pagination.next = {
+               page : page +1,
+               limit: limit
+           }
+  
+          }
+          if (startIndex > 0){
+           pagination.previous = {
+               page: page-1,
+               limit: limit
+           }
+ 
+          }
    
-    const products = await Products.find()
+        })
+        .catch((err) => {
+          console.log(err)
+          res.redirect('/')
+        })
+    }else{
+        await Products.find().limit(limit)
+         .skip(startIndex)
+         .then((results) => {
+            products = results
+           if (endIndex < jumlah)
+           {
+            pagination.next = {
+                page : page +1,
+                limit: limit
+            }
+           }
+           if (startIndex > 0){
+            pagination.previous = {
+                page: page-1,
+                limit: limit
+            }
+           }  
+         })
+         .catch((err) => {
+           console.log(err)
+           res.redirect('/')
+         })
+    }
+
     if(req.isAuthenticated()){
         var badgeCart
         const userid = req.user.id
@@ -98,11 +181,12 @@ app.get('/product', async function(req, res) {
         })
         res.render('pages/product',
     {name: req.user.name,
-        isLoggedIn: true, products:products, badgecart:badgeCart});
+        isLoggedIn: true, products:products, badgecart:badgeCart, pagination:pagination, currentpage:page, categories:categories, brands:brands, reqbrand:reqbrand, reqcategory:reqcategory});
     }else{
         res.render('pages/product',
-    {isLoggedIn: false, products:products});
+    {isLoggedIn: false, products:products, pagination:pagination, currentpage:page, categories:categories, brands:brands , reqbrand:reqbrand, reqcategory:reqcategory});
     }
+
 
     
 });
